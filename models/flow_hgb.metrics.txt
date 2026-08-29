@@ -1,0 +1,16 @@
+                        precision    recall  f1-score   support
+
+                benign       1.00      1.00      1.00       300
+      botnet_c2_beacon       1.00      1.00      1.00       300
+     data_exfiltration       1.00      1.00      1.00       300
+    ddos_spoofed_flood       1.00      1.00      1.00       300
+        ddos_syn_flood       0.99      1.00      1.00       300
+ddos_udp_amplification       1.00      1.00      1.00       300
+            dga_domain       1.00      1.00      1.00       300
+            dns_tunnel       1.00      1.00      1.00       300
+     malware_encrypted       1.00      1.00      1.00       300
+       recon_port_scan       1.00      0.99      1.00       300
+
+              accuracy                           1.00      3000
+             macro avg       1.00      1.00      1.00      3000
+          weighted avg       1.00      1.00      1.00      3000

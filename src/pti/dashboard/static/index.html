@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Passive Threat Intel — Monitoring Enclave</title>
+  <style>
+    :root {
+      --bg: #0b1017;
+      --panel: #121a24;
+      --line: #223044;
+      --text: #e8eef6;
+      --muted: #8aa0b8;
+      --crit: #ff4d6d;
+      --high: #ff8c42;
+      --med: #ffd166;
+      --low: #6ee7b7;
+      --accent: #3ec6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #152033, var(--bg));
+      color: var(--text);
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 24px; border-bottom: 1px solid var(--line);
+    }
+    header h1 { font-size: 18px; margin: 0; letter-spacing: 0.04em; }
+    header .mode { color: var(--accent); font-size: 12px; text-transform: uppercase; }
+    .grid { display: grid; grid-template-columns: 1.2fr 2fr; gap: 16px; padding: 16px 24px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card, .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+    }
+    .card .k { color: var(--muted); font-size: 12px; }
+    .card .v { font-size: 28px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    .sev { font-weight: 700; text-transform: uppercase; font-size: 11px; }
+    .critical { color: var(--crit); }
+    .high { color: var(--high); }
+    .medium { color: var(--med); }
+    .low { color: var(--low); }
+    .bars div { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+    .bars span.lab { width: 180px; color: var(--muted); }
+    .bar { height: 8px; background: #1c2a3a; flex: 1; border-radius: 4px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--accent); }
+    .hint { color: var(--muted); font-size: 12px; margin: 0 24px 16px; }
+    code { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Monitoring enclave — read-only ingest</h1>
+      <div class="mode">No return path · no decryption · streaming detections</div>
+    </div>
+    <div id="clock" class="mode"></div>
+  </header>
+  <div class="grid">
+    <div>
+      <div class="cards">
+        <div class="card"><div class="k">Flows processed</div><div class="v" id="flows">0</div></div>
+        <div class="card"><div class="k">Alerts</div><div class="v" id="alerts">0</div></div>
+        <div class="card"><div class="k">Flows / sec</div><div class="v" id="fps">0</div></div>
+      </div>
+      <div class="panel" style="margin-top:12px">
+        <div class="k">Alerts by class</div>
+        <div class="bars" id="bars"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="k" style="margin-bottom:8px">Live detections (severity · confidence · evidence)</div>
+      <div style="max-height: 70vh; overflow: auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Class</th><th>Sev</th><th>Conf</th><th>Flow</th><th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p class="hint">Alert schema: <code>timestamp, flow_id, threat_class, confidence, severity, evidence</code>. Output is intelligence only — this console cannot inject packets or issue blocks.</p>
+  <script>
+    const rows = document.getElementById("rows");
+    const bars = document.getElementById("bars");
+    const seen = new Set();
+    function fmtTs(ts) {
+      const d = new Date(ts * 1000);
+      return d.toISOString().substring(11, 23);
+    }
+    function ev(obj) {
+      return Object.entries(obj || {}).slice(0, 5).map(([k,v]) => k + "=" + v).join(" · ");
+    }
+    async function tick() {
+      const s = await fetch("/api/stats").then(r => r.json());
+      document.getElementById("flows").textContent = s.flows.toLocaleString();
+      document.getElementById("alerts").textContent = s.alert_count.toLocaleString();
+      document.getElementById("fps").textContent = s.flows_per_sec;
+      document.getElementById("clock").textContent = s.running ? "STREAMING" : "IDLE / COMPLETE";
+      const max = Math.max(1, ...Object.values(s.by_class));
+      bars.innerHTML = Object.entries(s.by_class).sort((a,b)=>b[1]-a[1]).map(([k,v]) =>
+        `<div><span class="lab">${k}</span><div class="bar"><i style="width:${(100*v/max).toFixed(0)}%"></i></div><span>${v}</span></div>`
+      ).join("");
+      const data = await fetch("/api/alerts?limit=80").then(r => r.json());
+      for (const a of data.alerts) {
+        if (seen.has(a.alert_id)) continue;
+        seen.add(a.alert_id);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${fmtTs(a.timestamp)}</td>
+          <td>${a.threat_class}</td>
+          <td class="sev ${a.severity}">${a.severity}</td>
+          <td>${(a.confidence*100).toFixed(0)}%</td>
+          <td>${a.flow_id}</td>
+          <td>${ev(a.evidence)}</td>`;
+        rows.prepend(tr);
+        while (rows.rows.length > 200) rows.deleteRow(-1);
+      }
+    }
+    setInterval(tick, 600);
+    tick();
+  </script>
+</body>
+</html>
